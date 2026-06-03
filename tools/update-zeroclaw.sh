@@ -2,10 +2,16 @@
 # update-zeroclaw.sh — bump misc/zeroclaw to the newest applicable zeroclaw
 # release, lint it, and push (clean) or open a review branch (lint fails).
 #
-# Version policy (operator decision 2026-06-03):
-#   Track the latest tag INCLUDING pre-releases (the beta line) until a STABLE
-#   release whose version is >= the current pin exists; once stable catches up,
-#   prefer stable and stop following betas.
+# Version policy:
+#   Track the latest tag INCLUDING pre-releases (the active beta line) until a
+#   STABLE release whose version is >= the current pin exists; once stable
+#   catches up, prefer stable and stop following betas. (WhatsApp Web support
+#   currently lives only on the beta line, not in the last stable.)
+#
+# The port carries an optional WhatsApp Web channel that pulls a git workspace
+# (oxidezap/whatsapp-rust). FreeBSD's cargo.mk vendors it correctly via the
+# @git+ entry in CARGO_CRATES once the source is extracted, so we KEEP the
+# @git+ line on regen (do not strip it).
 #
 # Run on a FreeBSD host with the ports framework, gh (authed), portlint, git.
 set -eu
@@ -38,41 +44,32 @@ echo "misc/zeroclaw: $cur -> $target"
 
 # repin DISTVERSION and drop the stale CARGO_CRATES block
 sed -i '' "s/^DISTVERSION=.*/DISTVERSION=	$target/" "$PORTDIR/Makefile"
-perl -0777 -i -pe 's/\nCARGO_CRATES=.*?(?=\n(post-extract:|\.include))/\n/s' "$PORTDIR/Makefile"
+perl -0777 -i -pe 's/\nCARGO_CRATES=.*?(?=\n\.include)/\n/s' "$PORTDIR/Makefile"
 
-# regenerate distinfo + crate list for the new version
+# regenerate distinfo + crate list for the new version (keep @git+ entries)
 mk clean
 mk makesum                       # main distfile
 mk cargo-crates > "/tmp/cc.$$" 2>/dev/null
-# Insert CARGO_CRATES, dropping any @git+ entry (the whatsapp-rust git workspace
-# is cut by files/strip-whatsapp.awk via post-extract — FreeBSD cargo.mk cannot
-# vendor a git workspace with subdir member crates).
 python3 - "$PORTDIR/Makefile" "/tmp/cc.$$" <<'PY'
 import sys
 mk, cc = sys.argv[1], sys.argv[2]
 raw = open(cc, encoding="utf-8").read()
-block = raw[raw.find("CARGO_CRATES="):].rstrip("\n").split("\n")
-block = [ln for ln in block if "@git+" not in ln]           # drop git crate line(s)
-if block:
-    block[-1] = block[-1].rstrip()                          # last entry: no trailing backslash
-    if block[-1].endswith("\\"):
-        block[-1] = block[-1][:-1].rstrip()
-text = "\n".join(block) + "\n"
+block = raw[raw.find("CARGO_CRATES="):].rstrip("\n")
 s = open(mk, encoding="utf-8").read()
-anchor = "post-extract:" if "post-extract:" in s else ".include <bsd.port.mk>"
-j = s.index(anchor)
-open(mk, "w", encoding="utf-8").write(s[:j] + text + "\n" + s[j:])
+j = s.index(".include <bsd.port.mk>")
+open(mk, "w", encoding="utf-8").write(s[:j] + block + "\n\n" + s[j:])
 PY
 rm -f "/tmp/cc.$$"
-mk makesum                       # all crate distfiles + checksums
+mk makesum                       # all crate distfiles + checksums (incl git source)
+portfmt -i "$PORTDIR/Makefile" || true
 mk clean
 
 git -C "$REPO_ROOT" add misc/zeroclaw/Makefile misc/zeroclaw/distinfo
 
 if portlint -AC "$PORTDIR"; then
 	git -C "$REPO_ROOT" commit -m "misc/zeroclaw: update to $target"
-	# fleet three-remote push order: ARGONAS first, then GitLab (CI), then GitHub
-	for r in argonas origin github; do
+	# push to whatever remotes are configured (missing ones are skipped)
+	for r in origin; do
 		git -C "$REPO_ROOT" push "$r" HEAD 2>/dev/null && echo "pushed -> $r" || echo "push skip: $r"
 	done
 	echo "misc/zeroclaw updated to $target"

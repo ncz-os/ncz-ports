@@ -1,54 +1,64 @@
-# ncz-ports — FreeBSD ports overlay (zeroclaw)
+# zeroclaw — FreeBSD port
 
-A minimal FreeBSD ports **overlay** carrying `misc/zeroclaw` for the fleet.
-The port itself is a normal, fully-pinned, checksummed FreeBSD port; an
-auto-updater keeps the pin current with upstream zeroclaw releases.
+A FreeBSD `USES=cargo` port for [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw),
+a fast, small Rust AI assistant / agent CLI. This repo is a ports **overlay**
+carrying `misc/zeroclaw`, plus a small script that keeps the pin current with
+upstream releases.
 
 ## Layout
 
 ```
-misc/zeroclaw/         pinned port (Makefile, distinfo, pkg-descr)
-tools/update-zeroclaw.sh   auto-bumper (run on a FreeBSD host)
+misc/zeroclaw/             the port (Makefile, distinfo, pkg-descr)
+tools/update-zeroclaw.sh   optional auto-bumper (run on a FreeBSD host)
 ```
 
-## Consuming the overlay on a FreeBSD host
-
-The port lives at `misc/zeroclaw`. Build it either by copying into the base
-ports tree, or as an overlay:
+## Building
 
 ```sh
-# option A: drop-in
+# drop into a ports tree:
 cp -R misc/zeroclaw /usr/ports/misc/zeroclaw
 cd /usr/ports/misc/zeroclaw && make install clean
 
-# option B: poudriere overlay (clean-room, recommended for fleet pkg builds)
-poudriere ports -c -p ncz -m null -M /path/to/this/checkout
-poudriere bulk -p ncz -j <jail> misc/zeroclaw
+# or use it as a poudriere overlay (-M /path/to/this/checkout)
 ```
 
-A built package installs `bin/zeroclaw` (the `zeroclaw` daemon/CLI).
+Installs `bin/zeroclaw` (daemon/CLI) and `bin/zeroclaw-acp-bridge`.
 
-## Version policy (operator decision, 2026-06-03)
+**Build requirements** (declared as BUILD_DEPENDS): `lang/rust` >= 1.95,
+`devel/cmake-core`, `devel/pkgconf`. On FreeBSD 15.0 the quarterly pkg branch
+may still carry rust 1.94 — install 1.95+ from the `latest` branch if so.
 
-The port tracks the **latest tag including pre-releases** (the active beta
-line) until a **stable** release whose version is `>=` the current pin exists.
-Once stable catches up, the updater prefers stable and stops following betas.
+## Features / WhatsApp
 
-- current pin: `v0.8.0-beta-2` (matches the fleet's installed runtime)
-- when `v0.8.0` final ships, the next update jumps to it (clean upgrade —
-  `0.8.0.b.2 < 0.8.0` in pkg version ordering, no `PORTEPOCH` needed)
+The port builds the default feature set plus `channel-whatsapp-cloud` and
+`whatsapp-web`. `whatsapp-web` pulls a **git workspace**
+(`oxidezap/whatsapp-rust`, with member crates in subdirectories). FreeBSD's
+`cargo.mk` vendors this correctly through the `@git+` entry in `CARGO_CRATES`:
+`cargo-crates-git-configure.awk` locates each member crate's subdir by package
+name, so no hand-written `[patch]` is required.
 
-## Auto-update
+## Versioning
 
-`tools/update-zeroclaw.sh` polls upstream, applies the policy above, and on a
-new applicable release: bumps `DISTVERSION`, regenerates `distinfo` +
-`CARGO_CRATES`, runs `portlint -AC`. If it lints clean it commits and pushes
-(ARGONAS → GitLab → GitHub); otherwise it pushes a review branch and does not
-auto-merge. It is driven by a daily `cron` job on the fleet FreeBSD host
-(the ports framework + `cargo` toolchain must run there, not on a Linux CI
-runner).
+ZeroClaw's current active line is a pre-release (`v0.8.0-beta-*`); the WhatsApp
+Web support lives there, not in the last stable (`v0.7.5`). The port pins the
+**latest tag including pre-releases** until a **stable** release whose version
+is `>=` the current pin exists, then prefers stable. `0.8.0` final is a clean
+upgrade from the beta pin (`0.8.0.b.2 < 0.8.0` in pkg ordering; no `PORTEPOCH`).
+
+## Auto-update (optional)
+
+`tools/update-zeroclaw.sh` polls upstream, applies the versioning policy above,
+and on a new applicable release bumps `DISTVERSION`, regenerates `distinfo` +
+`CARGO_CRATES` (keeping the `@git+` entry), then runs `portfmt -i` +
+`portlint -AC`. If clean it commits and pushes; otherwise it pushes a review
+branch instead of auto-merging. Because the bump needs the ports framework +
+the `cargo` toolchain, run it on a FreeBSD host (e.g. via `cron`), not a Linux
+CI runner:
 
 ```
-# /etc/cron.d or crontab on the FreeBSD ports host, daily at 04:17
-17 4 * * *  cd /path/to/ncz-ports && sh tools/update-zeroclaw.sh >> /var/log/zeroclaw-portbump.log 2>&1
+17 4 * * *  cd /path/to/this/checkout && sh tools/update-zeroclaw.sh >> /var/log/zeroclaw-portbump.log 2>&1
 ```
+
+## License
+
+The port follows ZeroClaw's dual MIT / Apache-2.0 license.

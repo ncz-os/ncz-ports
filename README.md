@@ -1,3 +1,11 @@
+> # 📍 Moved to GitLab
+> **The canonical, authoritative home of this project is GitLab — always:**
+> ## 👉 https://gitlab.com/ncz-os/ncz-ports
+>
+> This GitHub repository is a **frozen, read-only mirror**. All development, issues, and releases happen on GitLab. Please open issues and merge requests there. The full history of this stub is preserved on GitLab.
+
+---
+
 # zeroclaw — FreeBSD port
 
 A FreeBSD `USES=cargo` port for [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw),
